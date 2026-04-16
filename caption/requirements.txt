@@ -1,17 +1,15 @@
-fastapi
-uvicorn[standard]
-python-multipart
-Pillow
+fastapi>=0.100.0
+uvicorn[standard]>=0.20.0
+python-multipart>=0.0.6
+Pillow>=9.0.0
 
-# ✅ FIX: use CPU-only torch (NO CUDA)
-torch==2.0.1+cpu -f https://download.pytorch.org/whl/torch_stable.html
+transformers>=4.40.0
+accelerate>=0.25.0
 
-# ✅ FIX: remove [torch] extra
-transformers
+# CPU-friendly torch (auto compatible)
+torch>=2.5.0
 
-accelerate
-requests
-pytest
+requests>=2.31.0
 
-prometheus-client
-prometheus-fastapi-instrumentator
+prometheus-client>=0.20.0
+prometheus-fastapi-instrumentator>=6.1.0
