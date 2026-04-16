@@ -74,7 +74,8 @@ spec:
       # --- Main Application Container ---
       containers:
       - name: object-detector
-        image: shrutimrao/object:latest # Your object detection image
+        image: shrutimrao/object
+        imagePullPolicy: Always
         ports:
         - name: http-object # Named port for ServiceMonitor
           containerPort: 8001 # Port your app listens on
