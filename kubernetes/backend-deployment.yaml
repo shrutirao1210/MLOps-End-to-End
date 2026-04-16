@@ -123,7 +123,8 @@ spec:
       # --- Main Application Container ---
       containers:
       - name: backend
-        image: shrutimrao/caption:latest # Your captioning image
+        image: shrutimrao/caption
+        imagePullPolicy: Always 
         ports:
         - name: http-caption # Named port for ServiceMonitor
           containerPort: 8000
