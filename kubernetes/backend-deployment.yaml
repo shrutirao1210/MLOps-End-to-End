@@ -19,46 +19,45 @@ spec:
 
     spec:
       imagePullSecrets:
-        - name: regcred   # ✅ ADDED (THIS FIXES YOUR ISSUE)
+        - name: regcred
 
       volumes:
-      - name: shared-model-cache-volume
-        persistentVolumeClaim:
-          claimName: shared-model-cache-pvc
+        - name: shared-model-cache-volume
+          persistentVolumeClaim:
+            claimName: shared-model-cache-pvc
 
       initContainers:
-      - name: init-caption-model-download
-        image: python:3.13-slim
-        env:
-          - name: HF_HOME
-            value: /model-cache/.cache/huggingface
-          - name: TRANSFORMERS_CACHE
-            value: /model-cache/.cache/huggingface
-        volumeMounts:
-        - name: shared-model-cache-volume
-          mountPath: /model-cache
-        command: ["/bin/sh", "-c"]
-        args:
-          - |
-            echo "Checking for caption model marker..."
-            MARKER_FILE="/model-cache/caption_model_downloaded.marker"
-            MODEL_NAME_SHELL="nlpconnect/vit-gpt2-image-captioning"
+        - name: init-caption-model-download
+          image: python:3.13-slim
+          env:
+            - name: HF_HOME
+              value: /model-cache/.cache/huggingface
+            - name: TRANSFORMERS_CACHE
+              value: /model-cache/.cache/huggingface
+          volumeMounts:
+            - name: shared-model-cache-volume
+              mountPath: /model-cache
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Checking for caption model marker..."
+              MARKER_FILE="/model-cache/caption_model_downloaded.marker"
 
-            if [ ! -f "$MARKER_FILE" ]; then
-              echo "Downloading model..."
+              if [ ! -f "$MARKER_FILE" ]; then
+                echo "Downloading model..."
 
-              apt-get update && \
-              apt-get install -y --no-install-recommends build-essential cmake pkg-config && \
-              rm -rf /var/lib/apt/lists/*
+                apt-get update && \
+                apt-get install -y --no-install-recommends build-essential cmake pkg-config && \
+                rm -rf /var/lib/apt/lists/*
 
-              pip install --no-cache-dir --root-user-action=ignore transformers torch huggingface_hub sentencepiece pillow
+                pip install --no-cache-dir --root-user-action=ignore transformers torch huggingface_hub sentencepiece pillow
 
-              python -c "
+                python - <<EOF
 import sys, os
 from transformers import VisionEncoderDecoderModel, ViTImageProcessor, AutoTokenizer
 
-MODEL = '$MODEL_NAME_SHELL'
-CACHE = '/model-cache/.cache/huggingface'
+MODEL = "nlpconnect/vit-gpt2-image-captioning"
+CACHE = "/model-cache/.cache/huggingface"
 
 try:
     os.makedirs(CACHE, exist_ok=True)
@@ -69,35 +68,35 @@ try:
 except Exception as e:
     print(e)
     sys.exit(1)
-"
+EOF
 
-              if [ $? -eq 0 ]; then
-                touch "$MARKER_FILE"
+                if [ $? -eq 0 ]; then
+                  touch "$MARKER_FILE"
+                else
+                  exit 1
+                fi
               else
-                exit 1
+                echo "Model already exists"
               fi
-            else
-              echo "Model already exists"
-            fi
 
       containers:
-      - name: backend
-        image: shrutimrao/caption:build-22   # ✅ ensure tag exists
-        imagePullPolicy: Always
-        ports:
-        - containerPort: 8000
-        env:
-          - name: HF_HOME
-            value: /model-cache/.cache/huggingface
-          - name: TRANSFORMERS_CACHE
-            value: /model-cache/.cache/huggingface
-        volumeMounts:
-        - name: shared-model-cache-volume
-          mountPath: /model-cache
-        resources:
-          requests:
-            memory: "2Gi"
-            cpu: "500m"
-          limits:
-            memory: "4Gi"
-            cpu: "1000m"
+        - name: backend
+          image: shrutimrao/caption:build-22
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          env:
+            - name: HF_HOME
+              value: /model-cache/.cache/huggingface
+            - name: TRANSFORMERS_CACHE
+              value: /model-cache/.cache/huggingface
+          volumeMounts:
+            - name: shared-model-cache-volume
+              mountPath: /model-cache
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "500m"
+            limits:
+              memory: "4Gi"
+              cpu: "1000m"
