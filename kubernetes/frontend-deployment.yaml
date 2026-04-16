@@ -19,7 +19,8 @@ spec:
       # - name: your-registry-secret
       containers:
       - name: frontend
-        image: shrutimrao/spefrontend:latest # <-- CHANGE THIS
+        image: shrutimrao/spefrontend
+        imagePullPolicy: Always
         ports:
         - containerPort: 80
         resources: # Frontend usually needs fewer resources
