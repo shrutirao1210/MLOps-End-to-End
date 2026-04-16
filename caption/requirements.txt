@@ -6,6 +6,21 @@ Pillow>=9.0.0
 transformers>=4.40.0
 accelerate>=0.25.0
 
+# ✅ Correct way to install CPU torch
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.0.1
+
+requests>=2.31.0
+
+prometheus-client>=0.20.0
+prometheus-fastapi-instrumentator>=6.1.0fastapi>=0.100.0
+uvicorn[standard]>=0.20.0
+python-multipart>=0.0.6
+Pillow>=9.0.0
+
+transformers>=4.40.0
+accelerate>=0.25.0
+
 # CPU-friendly torch (auto compatible)
 torch==2.0.1+cpu -f https://download.pytorch.org/whl/torch_stable.html
 
