@@ -88,24 +88,33 @@ pipeline {
         script {
             echo "Pushing images to registry: ${DOCKER_REGISTRY}"
 
-            // Tag images as latest
-            sh """
-            docker tag ${FRONTEND_IMAGE_NAME}:${IMAGE_TAG} ${FRONTEND_IMAGE_NAME}:latest
-            docker tag ${CAPTION_IMAGE_NAME}:${IMAGE_TAG} ${CAPTION_IMAGE_NAME}:latest
-            docker tag ${OBJECT_IMAGE_NAME}:${IMAGE_TAG} ${OBJECT_IMAGE_NAME}:latest
-            """
+            withCredentials([usernamePassword(
+                credentialsId: DOCKER_CREDENTIALS_ID,
+                usernameVariable: 'DOCKER_USER',
+                passwordVariable: 'DOCKER_PASS'
+            )]) {
 
-            // Push frontend
-            sh "docker push ${FRONTEND_IMAGE_NAME}:${IMAGE_TAG}"
-            sh "docker push ${FRONTEND_IMAGE_NAME}:latest"
+                sh '''
+                echo $DOCKER_PASS | docker login ${DOCKER_REGISTRY} -u $DOCKER_USER --password-stdin
 
-            // Push caption
-            sh "docker push ${CAPTION_IMAGE_NAME}:${IMAGE_TAG}"
-            sh "docker push ${CAPTION_IMAGE_NAME}:latest"
+                echo "Tagging images"
+                docker tag ${FRONTEND_IMAGE_NAME}:${IMAGE_TAG} ${FRONTEND_IMAGE_NAME}:latest
+                docker tag ${CAPTION_IMAGE_NAME}:${IMAGE_TAG} ${CAPTION_IMAGE_NAME}:latest
+                docker tag ${OBJECT_IMAGE_NAME}:${IMAGE_TAG} ${OBJECT_IMAGE_NAME}:latest
 
-            // Push object
-            sh "docker push ${OBJECT_IMAGE_NAME}:${IMAGE_TAG}"
-            sh "docker push ${OBJECT_IMAGE_NAME}:latest"
+                echo "Pushing frontend"
+                docker push ${FRONTEND_IMAGE_NAME}:${IMAGE_TAG}
+                docker push ${FRONTEND_IMAGE_NAME}:latest
+
+                echo "Pushing caption"
+                docker push ${CAPTION_IMAGE_NAME}:${IMAGE_TAG}
+                docker push ${CAPTION_IMAGE_NAME}:latest
+
+                echo "Pushing object"
+                docker push ${OBJECT_IMAGE_NAME}:${IMAGE_TAG}
+                docker push ${OBJECT_IMAGE_NAME}:latest
+                '''
+            }
         }
     }
 }
