@@ -84,24 +84,31 @@ pipeline {
         }
 
         stage('Push Images') {
-            steps {
-                script {
-                    echo "Pushing images to registry: ${DOCKER_REGISTRY}"
-                    // Push frontend image
-                    sh "docker push ${FRONTEND_IMAGE_NAME}:${IMAGE_TAG}"
-                    sh "docker push ${FRONTEND_IMAGE_NAME}:latest"
+    steps {
+        script {
+            echo "Pushing images to registry: ${DOCKER_REGISTRY}"
 
-                    // Push caption image
-                    sh "docker push ${CAPTION_IMAGE_NAME}:${IMAGE_TAG}"
-                    sh "docker push ${CAPTION_IMAGE_NAME}:latest"
+            // Tag images as latest
+            sh """
+            docker tag ${FRONTEND_IMAGE_NAME}:${IMAGE_TAG} ${FRONTEND_IMAGE_NAME}:latest
+            docker tag ${CAPTION_IMAGE_NAME}:${IMAGE_TAG} ${CAPTION_IMAGE_NAME}:latest
+            docker tag ${OBJECT_IMAGE_NAME}:${IMAGE_TAG} ${OBJECT_IMAGE_NAME}:latest
+            """
 
-                    // Push object detection image
-                    sh "docker push ${OBJECT_IMAGE_NAME}:${IMAGE_TAG}"
-                    sh "docker push ${OBJECT_IMAGE_NAME}:latest"
-                }
-            }
+            // Push frontend
+            sh "docker push ${FRONTEND_IMAGE_NAME}:${IMAGE_TAG}"
+            sh "docker push ${FRONTEND_IMAGE_NAME}:latest"
+
+            // Push caption
+            sh "docker push ${CAPTION_IMAGE_NAME}:${IMAGE_TAG}"
+            sh "docker push ${CAPTION_IMAGE_NAME}:latest"
+
+            // Push object
+            sh "docker push ${OBJECT_IMAGE_NAME}:${IMAGE_TAG}"
+            sh "docker push ${OBJECT_IMAGE_NAME}:latest"
         }
-
+    }
+}
         stage('Setup Kubernetes') {
     steps {
         script {
