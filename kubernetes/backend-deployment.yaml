@@ -22,52 +22,90 @@ spec:
         - name: regcred
 
       volumes:
-        - name: shared-model-cache-volume
-          persistentVolumeClaim:
-            claimName: shared-model-cache-pvc
+      - name: shared-model-cache-volume
+        persistentVolumeClaim:
+          claimName: shared-model-cache-pvc
 
       initContainers:
-        - name: init-caption-model-download
-          image: python:3.13-slim
-          volumeMounts:
-            - name: shared-model-cache-volume
-              mountPath: /model-cache
-          command:
-            - /bin/sh
-            - -c
-          args:
-            - |
-              echo "Init starting..."
+      - name: init-caption-model-download
+        image: python:3.13-slim
+        env:
+          - name: HF_HOME
+            value: /model-cache/.cache/huggingface
+          - name: TRANSFORMERS_CACHE
+            value: /model-cache/.cache/huggingface
+        volumeMounts:
+        - name: shared-model-cache-volume
+          mountPath: /model-cache
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            echo "Checking for caption model marker..."
+            MARKER_FILE="/model-cache/caption_model_downloaded.marker"
+
+            if [ ! -f "$MARKER_FILE" ]; then
+              echo "Installing dependencies..."
 
               apt-get update && \
               apt-get install -y --no-install-recommends build-essential cmake pkg-config && \
               rm -rf /var/lib/apt/lists/*
 
-              pip install --no-cache-dir transformers torch huggingface_hub sentencepiece pillow
+              pip install --no-cache-dir --root-user-action=ignore transformers torch huggingface_hub sentencepiece pillow
+
+              echo "Downloading model..."
 
               python <<EOF
+import sys
 import os
 from transformers import VisionEncoderDecoderModel, ViTImageProcessor, AutoTokenizer
 
 MODEL = "nlpconnect/vit-gpt2-image-captioning"
-CACHE = "/model-cache/.cache/huggingface"
+CACHE_DIR = "/model-cache/.cache/huggingface"
 
-os.makedirs(CACHE, exist_ok=True)
-VisionEncoderDecoderModel.from_pretrained(MODEL, cache_dir=CACHE)
-ViTImageProcessor.from_pretrained(MODEL, cache_dir=CACHE)
-AutoTokenizer.from_pretrained(MODEL, cache_dir=CACHE)
+print(f"Downloading {MODEL}...")
 
-print("Model downloaded")
+try:
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    VisionEncoderDecoderModel.from_pretrained(MODEL, cache_dir=CACHE_DIR)
+    ViTImageProcessor.from_pretrained(MODEL, cache_dir=CACHE_DIR)
+    AutoTokenizer.from_pretrained(MODEL, cache_dir=CACHE_DIR)
+    print("Download successful")
+    sys.exit(0)
+except Exception as e:
+    print(f"ERROR: {e}")
+    sys.exit(1)
 EOF
 
-              echo "Init done"
+              if [ $? -eq 0 ]; then
+                touch "$MARKER_FILE"
+              else
+                exit 1
+              fi
+            else
+              echo "Model already exists"
+            fi
+
+            echo "Init container finished"
 
       containers:
-        - name: backend
-          image: shrutimrao/caption:latest
-          imagePullPolicy: Always
-          ports:
-            - containerPort: 8000
-          volumeMounts:
-            - name: shared-model-cache-volume
-              mountPath: /model-cache
+      - name: backend
+        image: shrutimrao/caption:latest
+        imagePullPolicy: Always
+        ports:
+        - name: http-caption
+          containerPort: 8000
+        env:
+          - name: HF_HOME
+            value: /model-cache/.cache/huggingface
+          - name: TRANSFORMERS_CACHE
+            value: /model-cache/.cache/huggingface
+        volumeMounts:
+        - name: shared-model-cache-volume
+          mountPath: /model-cache
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "500m"
+          limits:
+            memory: "4Gi"
+            cpu: "1000m"
