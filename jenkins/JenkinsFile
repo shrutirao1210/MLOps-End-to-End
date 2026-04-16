@@ -1,0 +1,218 @@
+pipeline {
+    agent any
+
+    environment {
+        // --- Configuration ---
+        DOCKER_REGISTRY = 'docker.io'
+        DOCKER_USERNAME = 'shrutimrao'
+        DOCKER_CREDENTIALS_ID = 'docker-hub-credentials'
+        KUBECONFIG_CREDENTIALS_ID = 'kube-config'
+        K8S_NAMESPACE = 'spe-project'
+        
+        // Image names
+        FRONTEND_IMAGE_NAME = "${DOCKER_USERNAME}/spefrontend"
+        CAPTION_IMAGE_NAME = "${DOCKER_USERNAME}/caption"
+        OBJECT_IMAGE_NAME = "${DOCKER_USERNAME}/object"
+        
+        // Use build number for image tags
+        IMAGE_TAG = "build-${BUILD_NUMBER}"
+        
+        // Email configuration
+        EMAIL_RECIPIENTS = 'googloid111@gmail.com'
+    }
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timestamps()
+        timeout(time: 1, unit: 'HOURS')
+        disableConcurrentBuilds()
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                echo "Checking out source code..."
+                checkout scm
+            }
+        }
+
+        stage('Docker Login') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId: DOCKER_CREDENTIALS_ID, 
+                                                    usernameVariable: 'DOCKER_USER', 
+                                                    passwordVariable: 'DOCKER_PASS')]) {
+                        sh '''
+                            echo $DOCKER_PASS | docker login ${DOCKER_REGISTRY} -u $DOCKER_USER --password-stdin
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Build Frontend Image') {
+            steps {
+                script {
+                    echo "Building frontend Docker image: ${FRONTEND_IMAGE_NAME}:${IMAGE_TAG}"
+                    dir('frontend') {
+                        sh "docker build -t ${FRONTEND_IMAGE_NAME}:${IMAGE_TAG} -f Dockerfile ."
+                    }
+                }
+            }
+        }
+
+        stage('Build Caption Image') {
+            steps {
+                script {
+                    echo "Building caption Docker image: ${CAPTION_IMAGE_NAME}:${IMAGE_TAG}"
+                    dir('caption') {
+                        sh "docker build -t ${CAPTION_IMAGE_NAME}:${IMAGE_TAG} -f Dockerfile ."
+                    }
+                }
+            }
+        }
+
+        stage('Build Object Detection Image') {
+            steps {
+                script {
+                    echo "Building object detection Docker image: ${OBJECT_IMAGE_NAME}:${IMAGE_TAG}"
+                    dir('object') {
+                        sh "docker build -t ${OBJECT_IMAGE_NAME}:${IMAGE_TAG} -f Dockerfile ."
+                    }
+                }
+            }
+        }
+
+        stage('Push Images') {
+            steps {
+                script {
+                    echo "Pushing images to registry: ${DOCKER_REGISTRY}"
+                    // Push frontend image
+                    sh "docker push ${FRONTEND_IMAGE_NAME}:${IMAGE_TAG}"
+                    sh "docker push ${FRONTEND_IMAGE_NAME}:latest"
+
+                    // Push caption image
+                    sh "docker push ${CAPTION_IMAGE_NAME}:${IMAGE_TAG}"
+                    sh "docker push ${CAPTION_IMAGE_NAME}:latest"
+
+                    // Push object detection image
+                    sh "docker push ${OBJECT_IMAGE_NAME}:${IMAGE_TAG}"
+                    sh "docker push ${OBJECT_IMAGE_NAME}:latest"
+                }
+            }
+        }
+
+        stage('Setup Kubernetes') {
+            steps {
+                script {
+                    // Set KUBECONFIG environment variable to use Docker Desktop's config
+                    sh '''
+                        # Set KUBECONFIG to use Docker Desktop's config
+                        export KUBECONFIG="$USERPROFILE/.kube/config"
+                        
+                        # Verify kubectl can access the cluster
+                        kubectl config use-context docker-desktop
+                        kubectl cluster-info
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    echo "Deploying to Kubernetes namespace: ${K8S_NAMESPACE}"
+                    
+                    try {
+                        // 1. Create namespace if it doesn't exist
+                        sh "kubectl apply -f kubernetes/namespace.yaml"
+
+                        // 2. Apply shared model PVC
+                        sh "kubectl apply -f kubernetes/shared-model.yaml"
+
+                        // Apply deployments
+                        sh "kubectl apply -f kubernetes/frontend-deployment.yaml"
+                        sh "kubectl apply -f kubernetes/backend-deployment.yaml"
+                        sh "kubectl apply -f kubernetes/object-detector-deployment.yaml"
+
+                        // 3. Apply services
+                        sh "kubectl apply -f kubernetes/frontend-service.yaml"
+                        sh "kubectl apply -f kubernetes/backend-service.yaml"
+                        sh "kubectl apply -f kubernetes/object-detector-service.yaml"
+
+                        // 4. Apply ingress
+                        sh "kubectl apply -f kubernetes/ingress.yaml"
+                        sh "kubectl apply -f kubernetes/monitoring-ingress.yaml"
+                        sh "kubectl apply -f kubernetes/hpa.yaml"
+
+                        // 5. Apply monitoring
+                        sh "kubectl apply -f kubernetes/app-servicemonitors.yaml"
+                        sh "kubectl apply -f kubernetes/prometheus-config.yaml"
+                        sh "kubectl apply -f kubernetes/grafana-config.yaml"
+
+                        // 6. Update deployments with new images
+                        sh """
+                            kubectl set image deployment/frontend-deployment frontend=${FRONTEND_IMAGE_NAME}:${IMAGE_TAG} -n ${K8S_NAMESPACE} --record
+                            kubectl set image deployment/backend-deployment backend=${CAPTION_IMAGE_NAME}:${IMAGE_TAG} -n ${K8S_NAMESPACE} --record
+                            kubectl set image deployment/object-detector-deployment object-detector=${OBJECT_IMAGE_NAME}:${IMAGE_TAG} -n ${K8S_NAMESPACE} --record
+                        """
+
+                        // // 7. Wait for rollouts to complete
+                        // sh """
+                        //     kubectl rollout status deployment/frontend-deployment -n ${K8S_NAMESPACE} --timeout=5m
+                        //     kubectl rollout status deployment/backend-deployment -n ${K8S_NAMESPACE} --timeout=5m
+                        //     kubectl rollout status deployment/object-detector-deployment -n ${K8S_NAMESPACE} --timeout=5m
+                        // """
+                    } catch (Exception e) {
+                        echo "Error during Kubernetes deployment: ${e.message}"
+                        sh 'kubectl get pods -n ${K8S_NAMESPACE}'
+                        sh 'kubectl describe pods -n ${K8S_NAMESPACE}'
+                        throw e
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            echo 'Pipeline finished.'
+            cleanWs()
+        }
+        success {
+            echo 'Pipeline succeeded!'
+            emailext (
+                subject: "Pipeline Successful: ${env.JOB_NAME} [${env.BUILD_NUMBER}]",
+                body: """
+                    Pipeline ${env.JOB_NAME} build #${env.BUILD_NUMBER} was successful!
+                    
+                    Build URL: ${env.BUILD_URL}
+                    Workspace: ${env.WORKSPACE}
+                    
+                    Deployed Images:
+                    - Frontend: ${FRONTEND_IMAGE_NAME}:${IMAGE_TAG}
+                    - Caption: ${CAPTION_IMAGE_NAME}:${IMAGE_TAG}
+                    - Object Detection: ${OBJECT_IMAGE_NAME}:${IMAGE_TAG}
+                    
+                    Kubernetes Namespace: ${K8S_NAMESPACE}
+                """,
+                to: "${EMAIL_RECIPIENTS}"
+            )
+        }
+        failure {
+            echo 'Pipeline failed!'
+            emailext (
+                subject: "Pipeline Failed: ${env.JOB_NAME} [${env.BUILD_NUMBER}]",
+                body: """
+                    Pipeline ${env.JOB_NAME} build #${env.BUILD_NUMBER} failed!
+                    
+                    Build URL: ${env.BUILD_URL}
+                    Workspace: ${env.WORKSPACE}
+                    
+                    Please check the Jenkins console output for more details.
+                """,
+                to: "${EMAIL_RECIPIENTS}"
+            )
+        }
+    }
+}

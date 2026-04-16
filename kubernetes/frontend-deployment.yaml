@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-deployment
+  namespace: spe-project # Or your default namespace
+  labels:
+    app: image-caption-frontend
+spec:
+  replicas: 1 # Frontend is usually less resource intensive
+  selector:
+    matchLabels:
+      app: image-caption-frontend
+  template:
+    metadata:
+      labels:
+        app: image-caption-frontend
+    spec:
+      # imagePullSecrets: # If needed
+      # - name: your-registry-secret
+      containers:
+      - name: frontend
+        image: shrutimrao/spefrontend:latest # <-- CHANGE THIS
+        ports:
+        - containerPort: 80
+        resources: # Frontend usually needs fewer resources
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "250m"

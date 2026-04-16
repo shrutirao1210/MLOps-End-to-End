@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  namespace: spe-project # Or your default namespace
+  labels:
+    app: image-caption-frontend
+spec:
+  selector:
+    app: image-caption-frontend
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 80
+  type: ClusterIP

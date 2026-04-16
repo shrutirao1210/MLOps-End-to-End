@@ -1,0 +1,119 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: object-detector-deployment
+  namespace: spe-project
+  labels:
+    app: object-detector-backend
+spec:
+  replicas: 1 # HPA will manage this later
+  selector:
+    matchLabels:
+      app: object-detector-backend
+  template:
+    metadata:
+      labels:
+        app: object-detector-backend
+    spec:
+      # --- Define Volume from PVC ---
+      volumes:
+      - name: shared-model-cache-volume # Use the SAME volume name
+        persistentVolumeClaim:
+          claimName: shared-model-cache-pvc # Reference the SAME PVC
+
+            # --- Init Container to Download Object Model ---
+      initContainers:
+      - name: init-object-model-download
+        image: python:3.13-slim # Base image is Debian-based
+        env:
+          - name: YOLO_MODEL_FILENAME
+            value: "yolo11m.pt"
+          - name: YOLO_MODEL_PATH_ON_VOLUME
+            value: "/model-cache/yolo"
+          - name: YOLO_DOWNLOAD_URL
+            value: "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11m.pt" # *** STILL NEED TO REPLACE THIS ***
+        volumeMounts:
+        - name: shared-model-cache-volume
+          mountPath: /model-cache
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            echo "Checking for object detection model..."
+            # --- USE apt-get INSTEAD OF apk ---
+            echo "Installing wget..."
+            apt-get update && \
+            apt-get install -y --no-install-recommends wget && \
+            rm -rf /var/lib/apt/lists/*
+            echo "wget installed."
+            # --- End Package Installation ---
+
+            mkdir -p $YOLO_MODEL_PATH_ON_VOLUME # Create directory if needed
+            TARGET_FILE="$YOLO_MODEL_PATH_ON_VOLUME/$YOLO_MODEL_FILENAME"
+            MARKER_FILE="/model-cache/object_model_downloaded.marker"
+
+            if [ ! -f "$MARKER_FILE" ]; then
+              echo "Object model not found in cache volume, downloading..."
+              if [ "$YOLO_DOWNLOAD_URL" = "YOUR_ACTUAL_YOLOv11m.pt_DOWNLOAD_URL_HERE" ]; then
+                echo "ERROR: YOLO_DOWNLOAD_URL environment variable not set correctly!"
+                exit 1
+              fi
+              # --- Now wget command should work ---
+              wget -O "$TARGET_FILE" "$YOLO_DOWNLOAD_URL"
+              if [ $? -eq 0 ]; then
+                echo "Object model download finished."
+                touch $MARKER_FILE
+              else
+                echo "ERROR: Object model download failed using wget!"
+                # Optionally remove partial download: rm -f "$TARGET_FILE"
+                exit 1
+              fi
+            else
+              echo "Object model marker file found, skipping download."
+            fi
+
+      # --- Main Application Container ---
+      containers:
+      - name: object-detector
+        image: shrutimrao/object:latest # Your object detection image
+        ports:
+        - name: http-object # Named port for ServiceMonitor
+          containerPort: 8001 # Port your app listens on
+        env: # Pass model path to application if needed
+          - name: YOLO_MODEL_PATH # Env var telling app where to load model from
+            value: "/model-cache/yolo/yolo11m.pt" # Match path used in init container & loader code
+          # - name: OBJECT_ENV_VAR
+          #   value: "some_value"
+        volumeMounts: # Mount the volume into the main container
+        - name: shared-model-cache-volume
+          mountPath: /model-cache
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+      #   # --- RECOMMENDED: Configure Health Checks ---
+      #   livenessProbe:
+      #     httpGet:
+      #       # *** IMPORTANT: Adjust path if needed (e.g., /api/object/health) ***
+      #       path: /health
+      #       port: 8001 # Port your app listens on
+      #     initialDelaySeconds: 90 # INCREASED: Allow time for model load FROM CACHE
+      #     periodSeconds: 20
+      #     timeoutSeconds: 10
+      #     failureThreshold: 3
+      #   readinessProbe:
+      #     httpGet:
+      #       # *** IMPORTANT: Adjust path if needed ***
+      #       path: /health
+      #       port: 8001 # Port your app listens on
+      #     initialDelaySeconds: 100 # INCREASED: Slightly after liveness
+      #     periodSeconds: 15
+      #     timeoutSeconds: 10
+      #     successThreshold: 1
+      #     failureThreshold: 3
+
+      # # --- Other Pod Spec configs ---
+      # # imagePullSecrets:
+      # # - name: your-registry-secret

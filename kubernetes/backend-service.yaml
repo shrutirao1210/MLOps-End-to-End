@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  namespace: spe-project # Or your default namespace
+  labels:
+    app: image-caption-backend # Matches labels in the Deployment
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "80"
+    prometheus.io/path: "/api/metrics"
+spec:
+  selector:
+    app: image-caption-backend # Matches labels in the Deployment
+  ports:
+  - name: http-caption # Optional name for the port
+    protocol: TCP
+    port: 80 # Service port (internal cluster access)
+    targetPort: 8000 # Port on the pod/container
+  type: ClusterIP # Only reachable within the cluster
